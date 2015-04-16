@@ -1,0 +1,159 @@
+---
+title: "Practical Machine Learning Course Project"
+author: "Saul Jackman"
+date: "April 14, 2015"
+output: html_document
+---
+
+### Prompt
+
+**Background**
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset). 
+
+**Data**
+
+
+The training data for this project are available here: [https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv]
+
+The test data are available here: [https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv]
+
+The data for this project come from this source: [http://groupware.les.inf.puc-rio.br/har]. If you use the document you create for this class for any purpose please cite them as they have been very generous in allowing their data to be used for this kind of assignment. 
+
+**What you should submit**
+
+The goal of your project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set. You may use any of the other variables to predict with. You should create a report describing how you built your model, how you used cross validation, what you think the expected out of sample error is, and why you made the choices you did. You will also use your prediction model to predict 20 different test cases. 
+
+1. Your submission should consist of a link to a Github repo with your R markdown and compiled HTML file describing your analysis. Please constrain the text of the writeup to < 2000 words and the number of figures to be less than 5. It will make it easier for the graders if you submit a repo with a gh-pages branch so the HTML page can be viewed online (and you always want to make it easy on graders :-).
+2. You should also apply your machine learning algorithm to the 20 test cases available in the test data above. Please submit your predictions in appropriate format to the programming assignment for automated grading. See the programming assignment for additional details. 
+
+**Reproducibility**
+
+Due to security concerns with the exchange of R code, your code will not be run during the evaluation by your classmates. Please be sure that if they download the repo, they will be able to view the compiled HTML version of your analysis. 
+
+An overall pseudo-random number generator seed was set at 12321 for all code.  In order to reproduce the results below, the same seed should be set.  Also, a variety of packages were installed and used for this assignment (e.g., caret, rpart, randomForest).  These must be installed in order to reproduce the results shown below.
+
+
+### Loading and Cleaning the Data
+First, we need to load the relevant libraries, set the seed, and read in the files.
+```{r}
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(RColorBrewer)
+library(rattle)
+library(lda)
+library(randomForest)
+set.seed(12321)
+```
+
+```{r, cache=TRUE}
+raw <- read.csv(url("http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"))
+testing <- read.csv(url("http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"))
+```
+
+Second, we partition the training data into training and validation sets.
+```{r}
+inTrain <- createDataPartition(raw$classe, p = 3/4)[[1]]
+training <- raw[inTrain,]
+crossval <- raw[-inTrain,]
+```
+
+Third, we get rid of the near zero variance predictors.
+```{r}
+loVar <-nearZeroVar(training, saveMetrics = TRUE)
+training <- training[, !loVar$nzv]
+```
+
+Fourth, we drop the identifier information variables.
+```{r}
+training <- training[,-(1:6)]
+```
+
+Last, we drop columms with >90% missing data.
+```{r}
+x <- training[lapply(training, function(x) sum(is.na(x)) / length(x)) > 0.9]
+missing <- names(x)
+varDrop <- names(training) %in% missing
+training <- training[!varDrop]
+```
+The resulting training dataset contains 14718 observations, and 53 variables.  The validation dataset contains 4904 observations, and the test dataset contains 20 observations.
+
+### Analysis
+
+**Raw Data**
+
+The variable "classe" contains five levels:  A, B, C, D and E.  These variables correspond to how well participants performed one set of ten repetitions of the unilateral dumbbell biceps curl:
+- A:  exactly according to the specification
+- B:  throwing the elbows to the front
+- C:  lifting the dumbbell only halfway
+- D:  lowering the dumbbell only halfway
+- E:  throwing the hips to the front
+
+As demonstrated by this histogram, each of these outcomes occurred thousands of times:
+```{r}
+plot(training$classe, col = "red", main = "Bar Plot of Levels of the 'Classe' Variable in the Training Dataset", xlab = "Classe levels", ylab = "Frequency")
+```
+
+**Prediction Model One:  Linear Discriminant Analysis**
+
+I begin with a linear discriminant analysis model for its ease of interpretability.
+```{r}
+modFitLDA <- train(classe ~ ., data = training, method = "lda")
+predLDA_train <- predict(modFitLDA, training)
+confusionMatrix(predLDA_train, training$classe)
+predLDA_oos <- predict(modFitLDA, crossval)
+confusionMatrix(predLDA_oos, crossval$classe)
+```
+The results indicate an in-sample accuracy level of approximately 70.4% and an out-of-sample accuracy level of approximately 70.0%.
+
+**Prediction Model Two:  Decision Tree**
+
+Next, I employ a decision tree model for its ease of interpretability.
+```{r}
+modFitDT <- rpart(classe ~ ., data = training, method = "class")
+fancyRpartPlot(modFitDT, cex = 0.4, under.cex = 1)
+predDT_train <- predict(modFitDT, training, type = "class")
+confusionMatrix(predDT_train, training$classe)
+predDT_oos <- predict(modFitDT, crossval, type = "class")
+confusionMatrix(predDT_oos, crossval$classe)
+```
+The results indicate an in-sample accuracy level of approximately 75.4% and an out-of-sample accuracy level of approximately 75.1%.
+
+**Prediction Model Three:  Random Forest**
+
+Since neither model has registered a particularly high accuracy level, I continue with a random forest model.
+```{r}
+modFitRF <- randomForest(classe ~ ., data = training, method = "class")
+predRF_train <- predict(modFitRF, training)
+confusionMatrix(predRF_train, training$classe)
+predRF_oos <- predict(modFitRF, crossval)
+confusionMatrix(predRF_oos, crossval$classe)
+```
+The random forest model registers an in-sample accuracy level of 100% and an out-of-sample accuracy level of 99.7%.
+
+### Predictions
+
+Since the random forest model easily outperformed the linear discriminant analysis model and decision tree model, I will use it to make my predictions on the test dataset.
+
+First, I pre-process the test dataset in the exact same manner as I had pre-processed the training dataset.
+```{r}
+loVar <-nearZeroVar(testing, saveMetrics = TRUE)
+testing <- testing[, !loVar$nzv]
+testing <- testing[,-(1:6)]
+x <- testing[lapply(testing, function(x) sum(is.na(x)) / length(x)) > 0.9]
+missing <- names(x)
+varDrop <- names(testing) %in% missing
+testing <- testing[!varDrop]
+```
+
+Then, I use the random forest model estimated from the training dataset to predict the "classe" variable for the 20 test observations.
+
+```{r}
+predRF_test <- predict(modFitRF, testing)
+predRF_test
+```
+
+### Conclusion
+
+Given the extremely high accuracy of the random forest model, it appears that one can confidently predict the outcome classe from the recorded data.
